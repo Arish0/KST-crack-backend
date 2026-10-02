@@ -1,0 +1,24 @@
+{
+  "name": "kst-backend",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kst-shop",
+      "database_id": "73f7c21c-cbf0-49e6-9cf5-037d4de4698c",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "0 3 * * *"
+    ]
+  },
+  "account_id": "58cf4c0436d6ae15fcc2585cb8bf9c61"
+}

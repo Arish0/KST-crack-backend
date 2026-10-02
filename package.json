@@ -1,0 +1,13 @@
+{
+  "name": "kst-crack-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply kst-shop --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.147.0"
+  }
+}

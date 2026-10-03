@@ -35,6 +35,26 @@ async function limit(request,DB,kind,max){
 }
 function token(request){return (request.headers.get('Cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('kst_session='))?.slice(12)||'';}
 const cookie=(value,age)=>`kst_session=${value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${age}`;
+const imagePath=/^\/images\/products\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp))$/;
+const imageTypes={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
+async function uploadImage(request,bucket){
+ if(!bucket)fail('Image storage is not configured',503);
+ const contentType=(request.headers.get('Content-Type')||'').toLowerCase().split(';')[0].trim(),extension=imageTypes[contentType];
+ if(!extension)fail('Choose a JPG, PNG, or WebP image',415);
+ const length=Number(request.headers.get('Content-Length'));
+ if(Number.isFinite(length)&&length>5*1024*1024)fail('Image must be 5 MB or smaller',413);
+ if(!request.body)fail('Choose an image');
+ const reader=request.body.getReader(),chunks=[];let size=0;
+ for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>5*1024*1024){await reader.cancel();fail('Image must be 5 MB or smaller',413);}chunks.push(value);}
+ const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+ const png=bytes.length>=8&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v);
+ const jpeg=bytes.length>=4&&bytes[0]===255&&bytes[1]===216&&bytes[bytes.length-2]===255&&bytes[bytes.length-1]===217;
+ const webp=bytes.length>=12&&new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP';
+ if(!(extension==='png'&&png||extension==='jpg'&&jpeg||extension==='webp'&&webp))fail('Image contents do not match its file type');
+ const key=`products/${crypto.randomUUID()}.${extension}`;
+ await bucket.put(key,bytes,{httpMetadata:{contentType}});
+ return json({url:`/images/${key}`},201);
+}
 async function verifyPassword(password,secret){
  if(typeof password!=='string'||password.length>256)return false;
  if(!secret)fail('Admin authentication is not configured',503);
@@ -54,6 +74,13 @@ export default {
    const actualHash=await hash(provided),expectedHash=await hash(expected);let mismatch=0;
    for(let i=0;i<actualHash.length;i++)mismatch|=actualHash.charCodeAt(i)^expectedHash.charCodeAt(i);
    if(mismatch)fail('Not found',404);
+   if(path.startsWith('/images/')){
+    if(request.method!=='GET')fail('Not found',404);
+    const match=imagePath.exec(path);if(!match)fail('Not found',404);
+    if(!env.PRODUCT_IMAGES)fail('Image storage is not configured',503);
+    const object=await env.PRODUCT_IMAGES.get(`products/${match[1]}`);if(!object)fail('Image not found',404);
+    return new Response(object.body,{headers:{'Content-Type':object.httpMetadata?.contentType||'application/octet-stream','Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});
+   }
    if(path==='/api/catalog'&&request.method==='GET'&&role==='customer'){
     const {db}=await catalogue(DB),rows=await DB.prepare("SELECT payload FROM orders WHERE json_extract(payload,'$.status')='Delivered'").all(),sold={};
     for(const row of rows.results)for(const item of JSON.parse(row.payload).items)sold[item.id]=(sold[item.id]||0)+item.qty;
@@ -78,6 +105,11 @@ export default {
     return json({ok:true},200,{'Set-Cookie':cookie(value,28800)});
    }
    const session=token(request);if(!session||!await DB.prepare('SELECT 1 FROM sessions WHERE token_hash=? AND expires>?').bind(await hash(session),Date.now()).first())fail('Please sign in',401);
+   if(path==='/api/admin/image'&&request.method==='POST'){
+    if(request.headers.get('x-kst-request')!=='admin')fail('Invalid request',403);
+    await limit(request,DB,'image-upload',30);
+    return await uploadImage(request,env.PRODUCT_IMAGES);
+   }
    if(path==='/api/admin'&&request.method==='GET'){
     const {db}=await catalogue(DB),rows=await DB.prepare('SELECT payload FROM orders ORDER BY created DESC').all();return json({...db,orders:rows.results.map(row=>publicOrder(JSON.parse(row.payload)))});
    }

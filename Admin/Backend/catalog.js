@@ -15,7 +15,7 @@ function diwaliGifts(offer){
  const result={id:text(offer.id,'offer id',60),enabled:offer.enabled===true,title:text(offer.title,'offer title',100),titleTa:text(offer.titleTa,'Tamil offer title',100,{optional:true}),drawAt:text(offer.drawAt,'draw date and time',16,{optional:true}),terms:text(offer.terms,'promotion terms',1500),termsTa:text(offer.termsTa,'Tamil promotion terms',1500,{optional:true})};
  if(result.drawAt){
   const date=result.drawAt.slice(0,10),midnight=Date.parse(`${date}T00:00:00Z`);
-  if(!/^\d{4}-\d{2}-\d{2}T09:[0-5]\d$/.test(result.drawAt)||!Number.isFinite(midnight)||new Date(midnight).toISOString().slice(0,10)!==date)fail('Choose a valid date and a selection time from 09:00 to 09:59 IST');
+  if(!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(result.drawAt)||!Number.isFinite(midnight)||new Date(midnight).toISOString().slice(0,10)!==date)fail('Choose a valid date and time in IST');
  }
  if(!Array.isArray(offer.gifts)||offer.gifts.length>20)fail('Add up to 20 Diwali prizes');
  result.gifts=offer.gifts.map((gift,i)=>({name:text(gift.name,`gift ${i+1}`,100,{optional:true}),nameTa:text(gift.nameTa,`gift ${i+1} Tamil name`,100,{optional:true}),description:text(gift.description,`gift ${i+1} description`,300,{optional:true}),descriptionTa:text(gift.descriptionTa,`gift ${i+1} Tamil description`,300,{optional:true})})).filter(gift=>gift.name);

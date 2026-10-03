@@ -18,7 +18,7 @@ async function body(request){
 async function catalogue(DB){
  const {orders:ignored,...initial}=seed;
  await DB.prepare('INSERT OR IGNORE INTO catalogue(id,payload) VALUES(1,?)').bind(JSON.stringify(initial)).run();
- const row=await DB.prepare('SELECT payload,revision FROM catalogue WHERE id=1').first();return {db:JSON.parse(row.payload),revision:row.revision};
+ const row=await DB.prepare('SELECT payload,revision FROM catalogue WHERE id=1').first(),db=JSON.parse(row.payload);db.diwaliGifts||=JSON.parse(JSON.stringify(seed.diwaliGifts));return {db,revision:row.revision};
 }
 async function updateCatalogue(DB,mutate){
  for(let attempt=0;attempt<5;attempt++){
@@ -33,6 +33,10 @@ async function limit(request,DB,kind,max){
  const result=await DB.prepare('INSERT INTO request_limits(bucket,count,expires) VALUES(?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=CASE WHEN expires<=? THEN 1 ELSE count+1 END,expires=CASE WHEN expires<=? THEN excluded.expires ELSE expires END RETURNING count').bind(bucket,expires,now,now).first();
  if(result.count>max)fail('Too many requests. Try again in 10 minutes.',429);
 }
+function normalizedMobile(value){if(typeof value!=='string')return '';const digits=value.replace(/\D/g,'');return digits.length===12&&digits.startsWith('91')?digits.slice(2):digits.length===10?digits:'';}
+function diwaliGiftsPublic(value){return {id:value.id,enabled:value.enabled===true&&Number.isFinite(drawTime(value.drawAt)),title:value.title,titleTa:value.titleTa,drawAt:value.drawAt,terms:value.terms,termsTa:value.termsTa,gifts:value.gifts.map(g=>({name:g.name,nameTa:g.nameTa,description:g.description,descriptionTa:g.descriptionTa})),drawn:Boolean(value.draw)};}
+function drawTime(value){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value||''))return NaN;return Date.parse(`${value}:00+05:30`);}
+function randomBelow(max){const limit=Math.floor(0x100000000/max)*max;const word=new Uint32Array(1);do{crypto.getRandomValues(word);}while(word[0]>=limit);return word[0]%max;}
 function token(request){return (request.headers.get('Cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('kst_session='))?.slice(12)||'';}
 const cookie=(value,age)=>`kst_session=${value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${age}`;
 const imagePath=/^\/images\/products\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp))$/;
@@ -84,7 +88,28 @@ export default {
    if(path==='/api/catalog'&&request.method==='GET'&&role==='customer'){
     const {db}=await catalogue(DB),rows=await DB.prepare("SELECT payload FROM orders WHERE json_extract(payload,'$.status')='Delivered'").all(),sold={};
     for(const row of rows.results)for(const item of JSON.parse(row.payload).items)sold[item.id]=(sold[item.id]||0)+item.qty;
-    return json({...db,products:db.products.map(p=>({...p,sold:sold[p.id]||0}))});
+    return json({...db,diwaliGifts:diwaliGiftsPublic(db.diwaliGifts),products:db.products.map(p=>({...p,sold:sold[p.id]||0}))});
+   }
+   if((path==='/api/diwali-prizes/entries'||path==='/api/diwali-prizes/wallet')&&request.method==='POST'&&role==='customer'){
+    await limit(request,DB,'diwali-prize-entry',5);if(request.headers.get('x-kst-request')!=='storefront')fail('Invalid request',403);
+    const b=await body(request),orderId=security.id(b.orderId),name=security.text(b.name,'customer name',100),mobile=normalizedMobile(b.mobile),{db}=await catalogue(DB),offer=db.diwaliGifts;
+    if(path==='/api/diwali-prizes/wallet'){
+     const row=await DB.prepare('SELECT payload FROM lucky_draw_entries WHERE campaign_id=? AND order_id=?').bind(offer.id,orderId).first();if(!row)fail('No prize entry was found for that order.',404);
+     const entry=JSON.parse(row.payload);if(normalizedMobile(entry.mobile)!==mobile||entry.name.trim().toLocaleLowerCase()!==name.trim().toLocaleLowerCase())fail('Order name and mobile number do not match this entry.',403);
+     return json({code:entry.code,created:entry.created,drawAt:offer.drawAt},200);
+    }
+    const address=security.text(b.address,'gift delivery address',1000);
+    const announcedAt=drawTime(offer.drawAt);if(!offer.enabled||!Number.isFinite(announcedAt)||offer.draw||Date.now()>=announcedAt)fail('Entries for this promotion are closed.',410);
+    if(!mobile)fail('Enter a valid 10-digit mobile number.');
+    const orderRow=await DB.prepare('SELECT payload FROM orders WHERE id=?').bind(orderId).first();if(!orderRow)fail('Order reference not found.',404);
+    const order=JSON.parse(orderRow.payload),eligible=['Confirmed','Packed','Out for delivery','Delivered'];
+    if(!eligible.includes(order.status))fail('The shop must confirm your purchase before you can enter.');
+    if(normalizedMobile(order.mobile)!==mobile||order.name.trim().toLocaleLowerCase()!==name.trim().toLocaleLowerCase())fail('Order name and mobile number must match the confirmed order.',403);
+    const existing=await DB.prepare('SELECT payload FROM lucky_draw_entries WHERE order_id=?').bind(orderId).first();if(existing){const entry=JSON.parse(existing.payload);if(normalizedMobile(entry.mobile)!==mobile||entry.name.trim().toLocaleLowerCase()!==name.trim().toLocaleLowerCase())fail('This order already has an entry.',409);return json({code:entry.code,created:entry.created,drawAt:offer.drawAt},200);}
+    const code=`KST-${crypto.randomUUID().replaceAll('-','').slice(0,10).toUpperCase()}`,entry={code,orderId,campaignId:offer.id,created:new Date().toISOString(),name,mobile:order.mobile,address};
+    const inserted=await DB.prepare('INSERT INTO lucky_draw_entries(id,campaign_id,order_id,created,payload) VALUES(?,?,?,?,?) ON CONFLICT(order_id) DO NOTHING').bind(code,offer.id,orderId,entry.created,JSON.stringify(entry)).run();
+    if(!inserted.meta.changes)fail('This order already has an entry.',409);
+    return json({code,created:entry.created,drawAt:offer.drawAt},201);
    }
    if(path==='/api/orders'&&request.method==='POST'&&role==='customer'){
     await limit(request,DB,'orders',30);if(request.headers.get('x-kst-request')!=='storefront')fail('Invalid request',403);
@@ -111,10 +136,10 @@ export default {
     return await uploadImage(request,env.PRODUCT_IMAGES);
    }
    if(path==='/api/admin'&&request.method==='GET'){
-    const {db}=await catalogue(DB),rows=await DB.prepare('SELECT payload FROM orders ORDER BY created DESC').all();return json({...db,orders:rows.results.map(row=>publicOrder(JSON.parse(row.payload)))});
+    const {db}=await catalogue(DB),rows=await DB.prepare('SELECT payload FROM orders ORDER BY created DESC').all(),entries=await DB.prepare('SELECT payload FROM lucky_draw_entries ORDER BY created DESC').all();return json({...db,orders:rows.results.map(row=>publicOrder(JSON.parse(row.payload))),diwaliPrizeEntries:entries.results.map(row=>JSON.parse(row.payload))});
    }
    const action=path.startsWith('/api/admin/')?path.slice('/api/admin/'.length):'';
-   if(!['settings','product','bundle','status','delete','logout'].includes(action))fail('Not found',404);
+   if(!['settings','product','bundle','status','delete','logout','diwali-gifts','diwali-gifts/run'].includes(action))fail('Not found',404);
    if(request.method!=='POST')fail('Use POST for this action',405);
    if(request.headers.get('x-kst-request')!=='admin')fail('Invalid request',403);
    const b=await body(request);
@@ -123,8 +148,18 @@ export default {
     if(!['New request','Confirmed','Packed','Out for delivery','Delivered','Cancelled'].includes(b.status))fail('Invalid order status');
     const result=await DB.prepare("UPDATE orders SET payload=json_set(payload,'$.status',?) WHERE id=?").bind(b.status,security.id(b.id)).run();if(!result.meta.changes)fail('Invalid order status');return json({ok:true});
    }
+   if(action==='diwali-gifts/run'){
+    const {db}=await catalogue(DB),offer=db.diwaliGifts,announcedAt=drawTime(offer.drawAt),now=Date.now();if(!offer.enabled||!Number.isFinite(announcedAt)||offer.draw)fail('This prize promotion is not open for a new selection.',409);if(now<announcedAt)fail('The announced selection time has not arrived.',409);if(now>announcedAt+60*60*1000)fail('The announced 09:00–10:00 India time selection window has ended.',409);
+    const entries=await DB.prepare('SELECT payload FROM lucky_draw_entries WHERE campaign_id=? ORDER BY created').bind(offer.id).all(),rows=await DB.prepare("SELECT id,payload FROM orders WHERE json_extract(payload,'$.status') IN ('Confirmed','Packed','Out for delivery','Delivered')").all(),ordersById=new Map(rows.results.map(row=>[row.id,JSON.parse(row.payload)])),seen=new Set(),eligible=[];
+    for(const row of entries.results){const entry=JSON.parse(row.payload),order=ordersById.get(entry.orderId),phone=normalizedMobile(entry.mobile);if(order&&normalizedMobile(order.mobile)===phone&&!seen.has(phone)){seen.add(phone);eligible.push(entry);}}
+    if(eligible.length<5)fail('At least five eligible customers are required.',409);
+    for(let i=eligible.length-1;i>0;i--){const j=randomBelow(i+1);[eligible[i],eligible[j]]=[eligible[j],eligible[i]];}
+    const winners=eligible.slice(0,5).map((entry,index)=>({rank:index+1,prize:offer.gifts[index],code:entry.code,orderId:entry.orderId,name:entry.name,mobile:entry.mobile,address:entry.address})),drawnAt=new Date().toISOString();
+    await updateCatalogue(DB,current=>{if(current.diwaliGifts.draw)fail('The selection has already been completed.',409);if(current.diwaliGifts.id!==offer.id)fail('The offer changed. Reload and retry.',409);current.diwaliGifts.draw={drawnAt,winners};});return json({drawnAt,winners});
+   }
    await updateCatalogue(DB,db=>{
     if(action==='settings')db.settings=validators.settings(b);
+    if(action==='diwali-gifts'){const next=validators.diwaliGifts(b);next.draw=db.diwaliGifts.draw||null;db.diwaliGifts=next;}
     if(action==='product'||action==='bundle'){
      const value=action==='product'?validators.product(b):validators.bundle(b,db.products),list=action==='product'?db.products:db.bundles;
      if(value.id&&!list.some(item=>item.id===value.id))fail('Item no longer exists',404);

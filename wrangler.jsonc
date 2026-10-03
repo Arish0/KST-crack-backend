@@ -15,6 +15,12 @@
       "migrations_dir": "migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "kst-product-images"
+    }
+  ],
   "triggers": {
     "crons": [
       "0 3 * * *"

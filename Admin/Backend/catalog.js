@@ -14,10 +14,11 @@ function bundle(b,products){const result={name:text(b.name,'bundle name'),descri
 function diwaliGifts(offer){
  const result={id:text(offer.id,'offer id',60),enabled:offer.enabled===true,title:text(offer.title,'offer title',100),titleTa:text(offer.titleTa,'Tamil offer title',100,{optional:true}),drawAt:text(offer.drawAt,'draw date and time',16,{optional:true}),terms:text(offer.terms,'promotion terms',1500),termsTa:text(offer.termsTa,'Tamil promotion terms',1500,{optional:true})};
  if(result.drawAt&&(!/^\d{4}-\d{2}-\d{2}T09:00$/.test(result.drawAt)||!Number.isFinite(Date.parse(`${result.drawAt}:00+05:30`))))fail('Set the Diwali draw window to start at 09:00 India time');
- if(!Array.isArray(offer.gifts)||offer.gifts.length!==5)fail('Enter exactly five Diwali gifts');
- result.gifts=offer.gifts.map((gift,i)=>({name:text(gift.name,`gift ${i+1}`,100),nameTa:text(gift.nameTa,`gift ${i+1} Tamil name`,100,{optional:true}),description:text(gift.description,`gift ${i+1} description`,300,{optional:true}),descriptionTa:text(gift.descriptionTa,`gift ${i+1} Tamil description`,300,{optional:true})}));
+ if(!Array.isArray(offer.gifts)||offer.gifts.length>20)fail('Add up to 20 Diwali prizes');
+ result.gifts=offer.gifts.map((gift,i)=>({name:text(gift.name,`gift ${i+1}`,100,{optional:true}),nameTa:text(gift.nameTa,`gift ${i+1} Tamil name`,100,{optional:true}),description:text(gift.description,`gift ${i+1} description`,300,{optional:true}),descriptionTa:text(gift.descriptionTa,`gift ${i+1} Tamil description`,300,{optional:true})})).filter(gift=>gift.name);
  result.draw=offer.draw&&typeof offer.draw==='object'?offer.draw:null;
  if(result.enabled&&!result.drawAt)fail('Set the draw date and time before enabling entries');
+ if(result.enabled&&!result.gifts.length)fail('Add at least one prize before enabling entries');
  return result;
 }
 module.exports={settings,product,bundle,diwaliGifts};

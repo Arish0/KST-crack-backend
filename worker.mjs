@@ -152,9 +152,10 @@ export default {
     const {db}=await catalogue(DB),offer=db.diwaliGifts,announcedAt=drawTime(offer.drawAt),now=Date.now();if(!offer.enabled||!Number.isFinite(announcedAt)||offer.draw)fail('This prize promotion is not open for a new selection.',409);if(now<announcedAt)fail('The announced selection time has not arrived.',409);if(now>announcedAt+60*60*1000)fail('The announced 09:00–10:00 India time selection window has ended.',409);
     const entries=await DB.prepare('SELECT payload FROM lucky_draw_entries WHERE campaign_id=? ORDER BY created').bind(offer.id).all(),rows=await DB.prepare("SELECT id,payload FROM orders WHERE json_extract(payload,'$.status') IN ('Confirmed','Packed','Out for delivery','Delivered')").all(),ordersById=new Map(rows.results.map(row=>[row.id,JSON.parse(row.payload)])),seen=new Set(),eligible=[];
     for(const row of entries.results){const entry=JSON.parse(row.payload),order=ordersById.get(entry.orderId),phone=normalizedMobile(entry.mobile);if(order&&normalizedMobile(order.mobile)===phone&&!seen.has(phone)){seen.add(phone);eligible.push(entry);}}
-    if(eligible.length<5)fail('At least five eligible customers are required.',409);
+    if(!offer.gifts.length)fail('Add prizes before selecting customers.',409);
+    if(eligible.length<offer.gifts.length)fail(`At least ${offer.gifts.length} eligible customers are required for the configured prizes.`,409);
     for(let i=eligible.length-1;i>0;i--){const j=randomBelow(i+1);[eligible[i],eligible[j]]=[eligible[j],eligible[i]];}
-    const winners=eligible.slice(0,5).map((entry,index)=>({rank:index+1,prize:offer.gifts[index],code:entry.code,orderId:entry.orderId,name:entry.name,mobile:entry.mobile,address:entry.address})),drawnAt=new Date().toISOString();
+    const winners=eligible.slice(0,offer.gifts.length).map((entry,index)=>({rank:index+1,prize:offer.gifts[index],code:entry.code,orderId:entry.orderId,name:entry.name,mobile:entry.mobile,address:entry.address})),drawnAt=new Date().toISOString();
     await updateCatalogue(DB,current=>{if(current.diwaliGifts.draw)fail('The selection has already been completed.',409);if(current.diwaliGifts.id!==offer.id)fail('The offer changed. Reload and retry.',409);current.diwaliGifts.draw={drawnAt,winners};});return json({drawnAt,winners});
    }
    await updateCatalogue(DB,db=>{

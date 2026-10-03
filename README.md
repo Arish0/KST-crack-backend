@@ -92,6 +92,8 @@ Install dependencies during builds. Use Node.js 22.14 or newer (set `NODE_VERSIO
 
 The first backend deployment must exist before either frontend deploys, because service bindings refer to that Worker by name. Each later push to `main` will deploy only the Worker associated with that repository. Check the build log after the first push. Keep preview branches disabled initially so development builds do not write to the production D1 database. Apply future database schema migrations deliberately with `npm run migrate` using authentication that includes D1 write permission; the default Workers Builds token does not include that permission.
 
+The Diwali Special Prizes promotion stores entries in the `lucky_draw_entries` table created by `0002_lucky_draw.sql`. After merging and deploying the backend change, run `npm run migrate` from `Deployment/backend` once with Cloudflare D1 write permission. Then configure the five prizes, published terms, and draw time in Admin → Diwali Gifts before enabling entries. Customer-facing text discloses the confirmed-purchase eligibility and random selection. Review local requirements before enabling.
+
 ## 5. Attach the purchased customer domain
 
 In Cloudflare, add your domain to the account and complete the DNS/nameserver setup if it is not already active. Open **Workers & Pages → kst-customer → Settings → Domains & Routes → Add → Custom Domain**, and enter your purchased domain. Add `www` separately if you want both addresses. Verify the HTTPS certificate is active.

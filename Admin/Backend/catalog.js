@@ -11,4 +11,13 @@ function product(p){
  if(result.image&&!/^\/images\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/.test(result.image)){try{const url=new URL(result.image);if(url.protocol!=='https:'||url.username||url.password)fail('Image URL must use HTTPS without credentials');}catch{fail('Invalid HTTPS image URL');}}return result;
 }
 function bundle(b,products){const result={name:text(b.name,'bundle name'),description:text(b.description,'description',500,{optional:true}),price:number(b.price,'bundle price',.01,10000000),stock:number(b.stock,'bundle stock',0,100000,{integer:true})};if(b.id)result.id=id(b.id);if(!Array.isArray(b.items)||!b.items.length||b.items.length>100)fail('Select products for this bundle');const seen=new Set();result.items=b.items.map(i=>{if(!i||typeof i!=='object')fail('Invalid bundle item');const item={id:id(i.id),qty:number(i.qty,'bundle quantity',1,100,{integer:true})};if(!products.some(p=>p.id===item.id)||seen.has(item.id))fail('Invalid or duplicate bundle product');seen.add(item.id);return item;});return result;}
-module.exports={settings,product,bundle};
+function diwaliGifts(offer){
+ const result={id:text(offer.id,'offer id',60),enabled:offer.enabled===true,title:text(offer.title,'offer title',100),titleTa:text(offer.titleTa,'Tamil offer title',100,{optional:true}),drawAt:text(offer.drawAt,'draw date and time',16,{optional:true}),terms:text(offer.terms,'promotion terms',1500),termsTa:text(offer.termsTa,'Tamil promotion terms',1500,{optional:true})};
+ if(result.drawAt&&(!/^\d{4}-\d{2}-\d{2}T09:00$/.test(result.drawAt)||!Number.isFinite(Date.parse(`${result.drawAt}:00+05:30`))))fail('Set the Diwali draw window to start at 09:00 India time');
+ if(!Array.isArray(offer.gifts)||offer.gifts.length!==5)fail('Enter exactly five Diwali gifts');
+ result.gifts=offer.gifts.map((gift,i)=>({name:text(gift.name,`gift ${i+1}`,100),nameTa:text(gift.nameTa,`gift ${i+1} Tamil name`,100,{optional:true}),description:text(gift.description,`gift ${i+1} description`,300,{optional:true}),descriptionTa:text(gift.descriptionTa,`gift ${i+1} Tamil description`,300,{optional:true})}));
+ result.draw=offer.draw&&typeof offer.draw==='object'?offer.draw:null;
+ if(result.enabled&&!result.drawAt)fail('Set the draw date and time before enabling entries');
+ return result;
+}
+module.exports={settings,product,bundle,diwaliGifts};

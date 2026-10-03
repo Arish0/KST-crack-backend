@@ -102,7 +102,7 @@ Leave the admin on its separate `kst-admin.<your-account-subdomain>.workers.dev`
 
 ## 6. Verify before accepting orders
 
-For product image uploads, create a private R2 bucket named `kst-product-images` in the same Cloudflare account before merging the backend image-upload change. In Cloudflare, open **Storage & databases → R2 Object Storage → Create bucket**, enter that exact name, and keep public bucket access disabled. The backend Worker binds it as `PRODUCT_IMAGES` and serves approved images through the existing customer and admin Workers. The admin form accepts JPG, PNG, or WebP files up to 5 MB; an HTTPS image URL remains an alternative. Merge the backend change first, then the customer and admin frontend changes. Preview Workers deliberately do not bind the production bucket.
+Product image uploads require enabling R2 in Cloudflare and creating a private bucket named kst-product-images. Until then, the backend has no PRODUCT_IMAGES binding so Git builds can deploy; the image upload endpoint returns 503, and admins can paste HTTPS image URLs. After R2 is active, restore the binding in wrangler.jsonc and push main. Keep public bucket access disabled.
 
 - Open the customer domain and confirm the catalogue, discounts, bundles, and mobile animations load.
 - Open the admin Worker URL and sign in using your chosen password.

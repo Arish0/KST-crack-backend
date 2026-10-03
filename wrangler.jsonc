@@ -15,12 +15,7 @@
       "migrations_dir": "migrations"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "PRODUCT_IMAGES",
-      "bucket_name": "kst-product-images"
-    }
-  ],
+  // Add PRODUCT_IMAGES after R2 is enabled and kst-product-images exists.
   "triggers": {
     "crons": [
       "0 3 * * *"

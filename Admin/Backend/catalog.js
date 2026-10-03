@@ -6,7 +6,7 @@ function settings(s){
  if((result.hubLat===null)!==(result.hubLng===null))fail('Enter both hub coordinates');return result;
 }
 function product(p){
- const result={name:text(p.name,'product name'),category:text(p.category,'category',60),unit:text(p.unit,'pack size',100,{optional:true})||'Pack',price:number(p.price,'price',.01,10000000),discount:number(p.discount,'discount',0,100),stock:number(p.stock,'stock',0,100000,{integer:true}),featured:p.featured===true,art:['spark','pot','wheel','sky','gift'].includes(p.art)?p.art:'gift',color:'#edaccc',image:text(p.image,'image URL',2000,{optional:true})};
+ const result={name:text(p.name,'product name'),category:text(p.category,'category',60),unit:text(p.unit,'pack size',100,{optional:true})||'Pack',description:text(p.description,'description',500,{optional:true}),price:number(p.price,'price',.01,10000000),discount:number(p.discount,'discount',0,100),stock:number(p.stock,'stock',0,100000,{integer:true}),featured:p.featured===true,art:['spark','pot','wheel','sky','gift'].includes(p.art)?p.art:'gift',color:'#edaccc',image:text(p.image,'image URL',2000,{optional:true})};
  if(p.id)result.id=id(p.id);
  if(result.image){try{const url=new URL(result.image);if(url.protocol!=='https:'||url.username||url.password)fail('Image URL must use HTTPS without credentials');}catch{fail('Invalid HTTPS image URL');}}return result;
 }

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "node --check worker.mjs && node --check Admin/Backend/catalog.js",
     "deploy": "wrangler deploy",
     "migrate": "wrangler d1 migrations apply kst-shop --remote"
   },

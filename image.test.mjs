@@ -56,13 +56,21 @@ test('catalog accepts stored image paths and rejects arbitrary local paths',()=>
  const image='/images/products/12345678-1234-1234-1234-123456789abc.webp';
  assert.equal(catalog.product({...product,image}).image,image);
  assert.throws(()=>catalog.product({...product,image:'/admin/passwords'}));
- const media=catalog.product({...product,price:0,discount:0,packQuantity:24,image2:'https://pinata.test/ipfs/secondary',video:'https://pinata.test/ipfs/video'});
- assert.equal(media.packQuantity,24);assert.equal(media.image2,'https://pinata.test/ipfs/secondary');assert.equal(media.video,'https://pinata.test/ipfs/video');
+ const media=catalog.product({...product,price:0,discount:0,packQuantity:24,image2:'https://pinata.test/ipfs/secondary',images:['https://pinata.test/ipfs/primary','https://pinata.test/ipfs/secondary','https://pinata.test/ipfs/third'],video:'https://pinata.test/ipfs/video'});
+ assert.equal(media.packQuantity,24);assert.equal(media.image2,'https://pinata.test/ipfs/secondary');assert.equal(media.images.length,3);assert.equal(media.video,'https://pinata.test/ipfs/video');
  assert.equal(catalog.product({...product,price:0,discount:undefined}).price,0);
 });
 
-test('only gift boxes receive product discounts; missing prices require a shop quote',()=>{
+test('discounts apply to every product category; missing prices require a shop quote',()=>{
  const db={products:[{id:'crackers',name:'Sparklers',category:'Sparklers',price:100,discount:30,stock:5},{id:'gift',name:'Gift box',category:'Gift Boxes',price:200,discount:25,stock:5},{id:'quote',name:'Aerial set',category:'Aerial',price:0,discount:0,stock:5}],bundles:[]};
  const result=shop.quote(db,[{id:'crackers',qty:1},{id:'gift',qty:1},{id:'quote',qty:1}]);
- assert.equal(result.items[0].price,100);assert.equal(result.items[1].price,150);assert.equal(result.items[2].price,null);assert.equal(result.quoteRequired,true);
+ assert.equal(result.items[0].price,70);assert.equal(result.items[1].price,150);assert.equal(result.items[2].price,null);assert.equal(result.quoteRequired,true);
+});
+
+test('catalog keeps Quill formatting while stripping unsafe description markup',()=>{
+ const saved=catalog.product({name:'Formatted',category:'Gift Boxes',unit:'Box',description:'<h2 onclick="evil()">Details</h2><p>Line <strong>bold</strong><script>alert(1)</script><a href="javascript:evil()">unsafe</a><a href="https://example.com" onclick="evil()">safe</a></p>',price:10,discount:0,stock:2});
+ assert.match(saved.description,/<h2>Details<\/h2>/);
+ assert.match(saved.description,/<strong>bold<\/strong>/);
+ assert.doesNotMatch(saved.description,/script|onclick|javascript:/i);
+ assert.match(saved.description,/<a href="https:\/\/example\.com\/" rel="noopener noreferrer">safe<\/a>/);
 });

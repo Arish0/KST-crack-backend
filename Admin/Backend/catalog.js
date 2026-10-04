@@ -1,4 +1,19 @@
 const {text,number,id,fail}=require('./security');
+function richDescription(value){
+ if(value===undefined||value===null||value==='')return '';
+ if(typeof value!=='string'||value.length>12000)fail('Description must be no more than 12,000 characters');
+ const allowed=new Set(['p','br','strong','b','em','i','u','ol','ul','li','h2','h3','a']);
+ return value.replace(/<!--[\s\S]*?-->/g,'').replace(/<\/?([a-z][\w-]*)\b([^>]*)>/gi,(tag,name,attrs)=>{
+  name=name.toLowerCase();if(!allowed.has(name))return '';
+  if(tag.startsWith('</'))return name==='br'?'':`</${name}>`;
+  if(name==='br')return '<br>';
+  if(name==='a'){
+   const href=attrs.match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||'';
+   try{const url=new URL(href);if((url.protocol==='https:'||url.protocol==='http:')&&!url.username&&!url.password)return `<a href="${url.href.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" rel="noopener noreferrer">`; }catch{}
+  }
+  return `<${name}>`;
+ }).trim();
+}
 function settings(s){
  const result={name:text(s.name,'shop name'),banner:text(s.banner,'headline',200,{optional:true}),radius:number(s.radius,'radius',1,100),deliveryFee:number(s.deliveryFee,'delivery charge',0,100000)};
  for(const k of ['phone','whatsapp']){result[k]=text(s[k],k,16,{optional:true});if(result[k]&&!/^\+?\d{10,15}$/.test(result[k]))fail('Use a full international phone number');}
@@ -6,9 +21,10 @@ function settings(s){
  if((result.hubLat===null)!==(result.hubLng===null))fail('Enter both hub coordinates');return result;
 }
 function product(p){
- const result={name:text(p.name,'product name'),category:text(p.category,'category',60),unit:text(p.unit,'pack size',100,{optional:true})||'Pack',packQuantity:number(p.packQuantity??0,'pack quantity',0,100000,{integer:true}),description:text(p.description,'description',500,{optional:true}),price:number(p.price??0,'price',0,10000000),discount:number(p.discount??0,'discount',0,100),stock:number(p.stock,'stock',0,100000,{integer:true}),featured:p.featured===true,art:['spark','pot','wheel','sky','gift'].includes(p.art)?p.art:'gift',color:'#edaccc',image:text(p.image,'image URL',2000,{optional:true}),image2:text(p.image2,'secondary image URL',2000,{optional:true}),video:text(p.video,'product video URL',2000,{optional:true})};
+ const inputImages=Array.isArray(p.images)?p.images:[p.image,p.image2].filter(Boolean);if(inputImages.length>50)fail('Add no more than 50 product images');const images=inputImages.map((value,index)=>text(value,`product image ${index+1}`,2000,{optional:true})).filter(Boolean);
+ const result={name:text(p.name,'product name'),category:text(p.category,'category',60),unit:text(p.unit,'pack size',100,{optional:true})||'Pack',packQuantity:number(p.packQuantity??0,'pack quantity',0,100000,{integer:true}),description:richDescription(p.description),price:number(p.price??0,'price',0,10000000),discount:number(p.discount??0,'discount',0,100),stock:number(p.stock,'stock',0,100000,{integer:true}),featured:p.featured===true,art:['spark','pot','wheel','sky','gift'].includes(p.art)?p.art:'gift',color:'#edaccc',image:images[0]||'',image2:images[1]||'',images,video:text(p.video,'product video URL',2000,{optional:true})};
  if(p.id)result.id=id(p.id);
- for(const media of [result.image,result.image2,result.video])if(media&&!/^\/images\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp|mp4|webm)$/.test(media)){try{const url=new URL(media);if(url.protocol!=='https:'||url.username||url.password)fail('Media URLs must use HTTPS without credentials');}catch{fail('Invalid HTTPS media URL');}}return result;
+ for(const media of [...result.images,result.video])if(media&&!/^\/images\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp|mp4|webm)$/.test(media)){try{const url=new URL(media);if(url.protocol!=='https:'||url.username||url.password)fail('Media URLs must use HTTPS without credentials');}catch{fail('Invalid HTTPS media URL');}}return result;
 }
 function bundle(b,products){const result={name:text(b.name,'bundle name'),description:text(b.description,'description',500,{optional:true}),price:number(b.price??0,'bundle price',0,10000000),stock:number(b.stock,'bundle stock',0,100000,{integer:true})};if(b.id)result.id=id(b.id);if(!Array.isArray(b.items)||!b.items.length||b.items.length>100)fail('Select products for this bundle');const seen=new Set();result.items=b.items.map(i=>{if(!i||typeof i!=='object')fail('Invalid bundle item');const item={id:id(i.id),qty:number(i.qty,'bundle quantity',1,100,{integer:true})};if(!products.some(p=>p.id===item.id)||seen.has(item.id))fail('Invalid or duplicate bundle product');seen.add(item.id);return item;});return result;}
 function diwaliGifts(offer){

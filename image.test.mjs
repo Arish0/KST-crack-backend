@@ -59,6 +59,8 @@ test('catalog accepts stored image paths and rejects arbitrary local paths',()=>
  const media=catalog.product({...product,price:0,discount:0,packQuantity:24,image2:'https://pinata.test/ipfs/secondary',images:['https://pinata.test/ipfs/primary','https://pinata.test/ipfs/secondary','https://pinata.test/ipfs/third'],video:'https://pinata.test/ipfs/video'});
  assert.equal(media.packQuantity,24);assert.equal(media.image2,'https://pinata.test/ipfs/secondary');assert.equal(media.images.length,3);assert.equal(media.video,'https://pinata.test/ipfs/video');
  assert.equal(catalog.product({...product,price:0,discount:undefined}).price,0);
+ const webm=catalog.product({...product,video:'https://pinata.test/ipfs/webm-cid',videoType:'video/webm'});assert.equal(webm.videoType,'video/webm');
+ assert.throws(()=>catalog.product({...product,video:'https://pinata.test/ipfs/video-cid',videoType:'video/quicktime'}));
 });
 
 test('discounts apply to every product category; missing prices require a shop quote',()=>{

@@ -17,7 +17,7 @@ function createOrder(db,b,key){
  let pricing;try{pricing=quote(db,b.items);}catch(error){fail(error.message);}let km=null;
  if(b.mode==='delivery'){if(db.settings.hubLat===null||db.settings.hubLng===null)fail('The shop has not configured its delivery hub. Pickup is available.');km=distance(db.settings.hubLat,db.settings.hubLng,normalized.lat,normalized.lng);if(km>db.settings.radius)fail('Location is outside our delivery area');}
  const fee=b.mode==='delivery'?db.settings.deliveryFee:0;
- const order={id:'KST-'+crypto.randomBytes(8).toString('hex').toUpperCase(),created:new Date().toISOString(),...normalized,items:pricing.items,distance:km,...pricing,deliveryFee:fee,total:Math.round((pricing.subtotal+fee)*100)/100,status:'New request',...(key?{requestKey:key,requestHash}:{})};
+ const order={id:'KST-'+crypto.randomBytes(8).toString('hex').toUpperCase(),created:new Date().toISOString(),...normalized,items:pricing.items,distance:km,...pricing,deliveryFee:fee,total:pricing.quoteRequired?null:Math.round((pricing.subtotal+fee)*100)/100,status:'New request',...(key?{requestKey:key,requestHash}:{})};
  db.orders.unshift(order);return{order,repeated:false};
 }
 function publicOrder(order){const {requestKey,requestHash,...safe}=order;return safe;}

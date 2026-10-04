@@ -40,34 +40,40 @@ function randomBelow(max){const limit=Math.floor(0x100000000/max)*max;const word
 function token(request){return (request.headers.get('Cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('kst_session='))?.slice(12)||'';}
 const cookie=(value,age)=>`kst_session=${value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${age}`;
 const imagePath=/^\/images\/products\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp))$/;
-const imageTypes={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
-async function uploadImage(request,env){
- const contentType=(request.headers.get('Content-Type')||'').toLowerCase().split(';')[0].trim(),extension=imageTypes[contentType];
- if(!extension)fail('Choose a JPG, PNG, or WebP image',415);
+const mediaTypes={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','video/mp4':'mp4','video/webm':'webm'};
+async function uploadImage(request,env,DB){
+ const contentType=(request.headers.get('Content-Type')||'').toLowerCase().split(';')[0].trim(),extension=mediaTypes[contentType],isVideo=contentType.startsWith('video/'),maxSize=isVideo?25*1024*1024:5*1024*1024;
+ if(!extension)fail('Choose a JPG, PNG, WebP, MP4, or WebM file',415);
  const length=Number(request.headers.get('Content-Length'));
- if(Number.isFinite(length)&&length>5*1024*1024)fail('Image must be 5 MB or smaller',413);
- if(!request.body)fail('Choose an image');
+ if(Number.isFinite(length)&&length>maxSize)fail(isVideo?'Video must be 25 MB or smaller':'Image must be 5 MB or smaller',413);
+ if(!request.body)fail('Choose a media file');
  const reader=request.body.getReader(),chunks=[];let size=0;
- for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>5*1024*1024){await reader.cancel();fail('Image must be 5 MB or smaller',413);}chunks.push(value);}
+ for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>maxSize){await reader.cancel();fail(isVideo?'Video must be 25 MB or smaller':'Image must be 5 MB or smaller',413);}chunks.push(value);}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
  const png=bytes.length>=8&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v);
  const jpeg=bytes.length>=4&&bytes[0]===255&&bytes[1]===216&&bytes[bytes.length-2]===255&&bytes[bytes.length-1]===217;
  const webp=bytes.length>=12&&new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP';
- if(!(extension==='png'&&png||extension==='jpg'&&jpeg||extension==='webp'&&webp))fail('Image contents do not match its file type');
- if(env.PINATA_JWT){
-  const form=new FormData(),filename=`kst-product-${crypto.randomUUID()}.${extension}`;
-  form.append('network','public');form.append('file',new Blob([bytes],{type:contentType}),filename);form.append('name',filename);form.append('cid_version','v1');
-  let response;try{response=await fetch('https://uploads.pinata.cloud/v3/files',{method:'POST',headers:{Authorization:`Bearer ${env.PINATA_JWT}`},body:form});}catch{fail('Could not connect to IPFS image storage. Please retry.',502);}
-  let result;try{result=await response.json();}catch{fail('IPFS image storage returned an invalid response.',502);}
-  const cid=result?.data?.cid;if(!response.ok||typeof cid!=='string'||! /^[a-zA-Z0-9]{20,120}$/.test(cid))fail(`IPFS image upload failed (HTTP ${response.status}). Check the Pinata token has file upload permission.`,502);
+ const mp4=bytes.length>=12&&new TextDecoder().decode(bytes.slice(4,8))==='ftyp';
+ const webm=bytes.length>=4&&bytes[0]===0x1a&&bytes[1]===0x45&&bytes[2]===0xdf&&bytes[3]===0xa3;
+ if(!(extension==='png'&&png||extension==='jpg'&&jpeg||extension==='webp'&&webp||extension==='mp4'&&mp4||extension==='webm'&&webm))fail('File contents do not match the selected media type');
+ const pinataAccounts=[env.PINATA_JWT,env.PINATA_JWT_ALT_1||env.PINATA_ALT_JWT_1,env.PINATA_JWT_ALT_2||env.PINATA_ALT_JWT_2].filter((jwt,index,all)=>typeof jwt==='string'&&jwt.length>0&&all.indexOf(jwt)===index);
+ if(!pinataAccounts.length)fail('Pinata storage is not configured. Add the PINATA_JWT secret to the kst-backend Worker.',503);
+ {
+  const rotation=await DB.prepare("INSERT INTO upload_account_rotation(name,next_account) VALUES('pinata',1) ON CONFLICT(name) DO UPDATE SET next_account=upload_account_rotation.next_account+1 RETURNING next_account-1 AS account_index").first();
+  const start=(Number(rotation?.account_index)||0)%pinataAccounts.length;
+  const filename=`kst-product-${crypto.randomUUID()}.${extension}`,file=new Blob([bytes],{type:contentType});
+  let cid='',lastStatus=0;
+  for(let attempt=0;attempt<pinataAccounts.length;attempt++){
+   const jwt=pinataAccounts[(start+attempt)%pinataAccounts.length],form=new FormData();form.append('network','public');form.append('file',file,filename);form.append('name',filename);form.append('cid_version','v1');
+   let response;try{response=await fetch('https://uploads.pinata.cloud/v3/files',{method:'POST',headers:{Authorization:`Bearer ${jwt}`},body:form});}catch{continue;}
+   lastStatus=response.status;let result;try{result=await response.json();}catch{continue;}
+   if(response.ok&&typeof result?.data?.cid==='string'&&/^[a-zA-Z0-9]{20,120}$/.test(result.data.cid)){cid=result.data.cid;break;}
+  }
+  if(!cid)fail(lastStatus?`Pinata upload failed for all configured accounts (last HTTP ${lastStatus}). Check their upload permissions and storage quotas.`:'Could not connect to Pinata using any configured account.',502);
   let gateway;try{gateway=new URL(env.PINATA_GATEWAY||'https://gateway.pinata.cloud');}catch{fail('IPFS image gateway configuration is invalid.',503);}
   if(gateway.protocol!=='https:'||gateway.username||gateway.password||gateway.search||gateway.hash)fail('IPFS image gateway configuration is invalid.',503);
   const base=gateway.href.replace(/\/$/,'');return json({url:`${base}/ipfs/${cid}`,cid},201);
  }
- const bucket=env.PRODUCT_IMAGES;if(!bucket)fail('Image storage is not configured. Add the PINATA_JWT secret to the kst-backend Worker.',503);
- const key=`products/${crypto.randomUUID()}.${extension}`;
- await bucket.put(key,bytes,{httpMetadata:{contentType}});
- return json({url:`/images/${key}`},201);
 }
 async function verifyPassword(password,secret){
  if(typeof password!=='string'||password.length>256)return false;
@@ -143,7 +149,7 @@ export default {
    if(path==='/api/admin/image'&&request.method==='POST'){
     if(request.headers.get('x-kst-request')!=='admin')fail('Invalid request',403);
     await limit(request,DB,'image-upload',30);
-    return await uploadImage(request,env);
+    return await uploadImage(request,env,DB);
    }
    if(path==='/api/admin'&&request.method==='GET'){
     const {db}=await catalogue(DB),rows=await DB.prepare('SELECT payload FROM orders ORDER BY created DESC').all(),entries=await DB.prepare('SELECT payload FROM lucky_draw_entries ORDER BY created DESC').all();return json({...db,orders:rows.results.map(row=>publicOrder(JSON.parse(row.payload))),diwaliPrizeEntries:entries.results.map(row=>JSON.parse(row.payload))});

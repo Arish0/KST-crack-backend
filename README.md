@@ -102,7 +102,7 @@ Leave the admin on its separate `kst-admin.<your-account-subdomain>.workers.dev`
 
 ## 6. Verify before accepting orders
 
-Product image uploads use Pinata's public IPFS file API. In the Pinata developer dashboard, create an API key with file upload permission (`org:files:write`), then add its JWT as a **runtime secret** named `PINATA_JWT` on the `kst-backend` Worker. Do not put this token in a frontend, `vars`, source code, or a committed `.dev.vars` file. Optionally set the non-secret `PINATA_GATEWAY` Worker variable to your Pinata gateway origin; without it, uploaded images use `https://gateway.pinata.cloud/ipfs/<CID>`. The backend validates image bytes and returns the CID and gateway URL. Existing R2 image URLs continue to work if the `PRODUCT_IMAGES` binding is configured.
+Product photos and videos use Pinata's public IPFS file API. Configure the JWTs as runtime secrets on the `kst-backend` Worker: `PINATA_JWT`, `PINATA_JWT_ALT_1`, and `PINATA_JWT_ALT_2`. Uploads are assigned in a shared D1-backed round-robin across the configured accounts; if an account rejects an upload or is full, the Worker tries the remaining accounts. Apply D1 migrations (including `0003_upload_account_rotation.sql`) before deploying this code. Keep `.dev.vars` local-only and never commit JWTs or place them in frontend code. Optionally set the non-secret `PINATA_GATEWAY` Worker variable; without it, media uses `https://gateway.pinata.cloud/ipfs/<CID>`. The backend validates content, limits images to 5 MB and videos to 25 MB, and returns the CID and gateway URL.
 
 - Open the customer domain and confirm the catalogue, discounts, bundles, and mobile animations load.
 - Open the admin Worker URL and sign in using your chosen password.

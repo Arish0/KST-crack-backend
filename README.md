@@ -102,7 +102,7 @@ Leave the admin on its separate `kst-admin.<your-account-subdomain>.workers.dev`
 
 ## 6. Verify before accepting orders
 
-Product image uploads require enabling R2 in Cloudflare and creating a private bucket named kst-product-images. Until then, the backend has no PRODUCT_IMAGES binding so Git builds can deploy; the image upload endpoint returns 503, and admins can paste HTTPS image URLs. After R2 is active, restore the binding in wrangler.jsonc and push main. Keep public bucket access disabled.
+Product image uploads use Pinata's public IPFS file API. In the Pinata developer dashboard, create an API key with file upload permission (`org:files:write`), then add its JWT as a **runtime secret** named `PINATA_JWT` on the `kst-backend` Worker. Do not put this token in a frontend, `vars`, source code, or a committed `.dev.vars` file. Optionally set the non-secret `PINATA_GATEWAY` Worker variable to your Pinata gateway origin; without it, uploaded images use `https://gateway.pinata.cloud/ipfs/<CID>`. The backend validates image bytes and returns the CID and gateway URL. Existing R2 image URLs continue to work if the `PRODUCT_IMAGES` binding is configured.
 
 - Open the customer domain and confirm the catalogue, discounts, bundles, and mobile animations load.
 - Open the admin Worker URL and sign in using your chosen password.

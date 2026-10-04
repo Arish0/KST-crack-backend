@@ -41,8 +41,7 @@ function token(request){return (request.headers.get('Cookie')||'').split(';').ma
 const cookie=(value,age)=>`kst_session=${value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${age}`;
 const imagePath=/^\/images\/products\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp))$/;
 const imageTypes={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
-async function uploadImage(request,bucket){
- if(!bucket)fail('Image storage is not configured',503);
+async function uploadImage(request,env){
  const contentType=(request.headers.get('Content-Type')||'').toLowerCase().split(';')[0].trim(),extension=imageTypes[contentType];
  if(!extension)fail('Choose a JPG, PNG, or WebP image',415);
  const length=Number(request.headers.get('Content-Length'));
@@ -55,6 +54,17 @@ async function uploadImage(request,bucket){
  const jpeg=bytes.length>=4&&bytes[0]===255&&bytes[1]===216&&bytes[bytes.length-2]===255&&bytes[bytes.length-1]===217;
  const webp=bytes.length>=12&&new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP';
  if(!(extension==='png'&&png||extension==='jpg'&&jpeg||extension==='webp'&&webp))fail('Image contents do not match its file type');
+ if(env.PINATA_JWT){
+  const form=new FormData(),filename=`kst-product-${crypto.randomUUID()}.${extension}`;
+  form.append('network','public');form.append('file',new Blob([bytes],{type:contentType}),filename);form.append('name',filename);form.append('cid_version','v1');
+  let response;try{response=await fetch('https://uploads.pinata.cloud/v3/files',{method:'POST',headers:{Authorization:`Bearer ${env.PINATA_JWT}`},body:form});}catch{fail('Could not connect to IPFS image storage. Please retry.',502);}
+  let result;try{result=await response.json();}catch{fail('IPFS image storage returned an invalid response.',502);}
+  const cid=result?.data?.cid;if(!response.ok||typeof cid!=='string'||! /^[a-zA-Z0-9]{20,120}$/.test(cid))fail(`IPFS image upload failed (HTTP ${response.status}). Check the Pinata token has file upload permission.`,502);
+  let gateway;try{gateway=new URL(env.PINATA_GATEWAY||'https://gateway.pinata.cloud');}catch{fail('IPFS image gateway configuration is invalid.',503);}
+  if(gateway.protocol!=='https:'||gateway.username||gateway.password||gateway.search||gateway.hash)fail('IPFS image gateway configuration is invalid.',503);
+  const base=gateway.href.replace(/\/$/,'');return json({url:`${base}/ipfs/${cid}`,cid},201);
+ }
+ const bucket=env.PRODUCT_IMAGES;if(!bucket)fail('Image storage is not configured. Add the PINATA_JWT secret to the kst-backend Worker.',503);
  const key=`products/${crypto.randomUUID()}.${extension}`;
  await bucket.put(key,bytes,{httpMetadata:{contentType}});
  return json({url:`/images/${key}`},201);
@@ -133,7 +143,7 @@ export default {
    if(path==='/api/admin/image'&&request.method==='POST'){
     if(request.headers.get('x-kst-request')!=='admin')fail('Invalid request',403);
     await limit(request,DB,'image-upload',30);
-    return await uploadImage(request,env.PRODUCT_IMAGES);
+    return await uploadImage(request,env);
    }
    if(path==='/api/admin'&&request.method==='GET'){
     const {db}=await catalogue(DB),rows=await DB.prepare('SELECT payload FROM orders ORDER BY created DESC').all(),entries=await DB.prepare('SELECT payload FROM lucky_draw_entries ORDER BY created DESC').all();return json({...db,orders:rows.results.map(row=>publicOrder(JSON.parse(row.payload))),diwaliPrizeEntries:entries.results.map(row=>JSON.parse(row.payload))});
